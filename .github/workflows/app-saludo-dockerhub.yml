@@ -14,8 +14,11 @@ permissions:
 
 env:
   REGISTRY: docker.io
-  BACKEND_IMAGE: app-saludo-backend
-  FRONTEND_IMAGE: app-saludo-frontend
+  IMAGE_REPO_NAME: ${{ secrets.IMAGE_REPO_NAME }}
+  BACKEND_TAG_LATEST: backend-latest
+  FRONTEND_TAG_LATEST: frontend-latest
+  BACKEND_SHA_PREFIX: backend-sha-
+  FRONTEND_SHA_PREFIX: frontend-sha-
   KEEP_SHA_TAGS: "3"
   DEPLOY_COMPOSE_FILE: /srv/platform/infra/compose/docker-compose.yml
   DEPLOY_BACKEND_SERVICE: backend-saludo
@@ -57,8 +60,8 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push backend image
         uses: docker/build-push-action@v6
@@ -67,14 +70,15 @@ jobs:
           file: ./backend-saludo/Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.BACKEND_IMAGE }}:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.BACKEND_IMAGE }}:sha-${{ github.sha }}
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.BACKEND_TAG_LATEST }}
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.BACKEND_SHA_PREFIX }}${{ github.sha }}
 
       - name: Keep only latest 3 backend SHA tags in Docker Hub
         env:
-          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
-          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          REPO_NAME: ${{ env.BACKEND_IMAGE }}
+          DH_USER: ${{ secrets.DOCKER_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKER_PASSWORD }}
+          REPO_NAME: ${{ env.IMAGE_REPO_NAME }}
+          TAG_PREFIX: ${{ env.BACKEND_SHA_PREFIX }}
           KEEP_SHA_TAGS: ${{ env.KEEP_SHA_TAGS }}
         run: |
           python - <<'PY'
@@ -87,6 +91,7 @@ jobs:
           token = os.environ['DH_TOKEN']
           repo = os.environ['REPO_NAME']
           keep = int(os.environ.get('KEEP_SHA_TAGS', '3'))
+          tag_prefix = os.environ.get('TAG_PREFIX', 'sha-')
 
           login_req = urllib.request.Request(
               'https://hub.docker.com/v2/users/login/',
@@ -111,7 +116,7 @@ jobs:
           sha_tags = []
           for t in tags:
               name = t.get('name', '')
-              if name.startswith('sha-'):
+              if name.startswith(tag_prefix):
                   pushed = t.get('tag_last_pushed')
                   try:
                       dt = datetime.fromisoformat(pushed.replace('Z', '+00:00'))
@@ -148,8 +153,8 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
@@ -158,14 +163,15 @@ jobs:
           file: ./frontend-saludo/Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.FRONTEND_IMAGE }}:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.FRONTEND_IMAGE }}:sha-${{ github.sha }}
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.FRONTEND_TAG_LATEST }}
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.FRONTEND_SHA_PREFIX }}${{ github.sha }}
 
       - name: Keep only latest 3 frontend SHA tags in Docker Hub
         env:
-          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
-          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          REPO_NAME: ${{ env.FRONTEND_IMAGE }}
+          DH_USER: ${{ secrets.DOCKER_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKER_PASSWORD }}
+          REPO_NAME: ${{ env.IMAGE_REPO_NAME }}
+          TAG_PREFIX: ${{ env.FRONTEND_SHA_PREFIX }}
           KEEP_SHA_TAGS: ${{ env.KEEP_SHA_TAGS }}
         run: |
           python - <<'PY'
@@ -178,6 +184,7 @@ jobs:
           token = os.environ['DH_TOKEN']
           repo = os.environ['REPO_NAME']
           keep = int(os.environ.get('KEEP_SHA_TAGS', '3'))
+          tag_prefix = os.environ.get('TAG_PREFIX', 'sha-')
 
           login_req = urllib.request.Request(
               'https://hub.docker.com/v2/users/login/',
@@ -202,7 +209,7 @@ jobs:
           sha_tags = []
           for t in tags:
               name = t.get('name', '')
-              if name.startswith('sha-'):
+              if name.startswith(tag_prefix):
                   pushed = t.get('tag_last_pushed')
                   try:
                       dt = datetime.fromisoformat(pushed.replace('Z', '+00:00'))
@@ -233,15 +240,15 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           script_stop: true
-          envs: DOCKERHUB_USERNAME,DOCKERHUB_TOKEN,BACKEND_IMAGE,DEPLOY_COMPOSE_FILE,DEPLOY_BACKEND_SERVICE
+          envs: DOCKER_USERNAME,DOCKER_PASSWORD,IMAGE_REPO_NAME,BACKEND_TAG_LATEST,DEPLOY_COMPOSE_FILE,DEPLOY_BACKEND_SERVICE,EUREKA_ENABLED,EUREKA_DEFAULT_ZONE
           script: |
             set -e
-            IMAGE="$DOCKERHUB_USERNAME/$BACKEND_IMAGE:latest"
-            docker login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_TOKEN"
+            IMAGE="$DOCKER_USERNAME/$IMAGE_REPO_NAME:$BACKEND_TAG_LATEST"
+            docker login -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD"
             docker pull "$IMAGE"
 
             if [ -f "$DEPLOY_COMPOSE_FILE" ] && docker compose -f "$DEPLOY_COMPOSE_FILE" config --services | grep -qx "$DEPLOY_BACKEND_SERVICE"; then
@@ -261,8 +268,8 @@ jobs:
 
             docker ps --filter "name=$DEPLOY_BACKEND_SERVICE"
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
           EUREKA_ENABLED: ${{ env.EUREKA_ENABLED }}
           EUREKA_DEFAULT_ZONE: ${{ env.EUREKA_DEFAULT_ZONE }}
 
@@ -274,15 +281,15 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           script_stop: true
-          envs: DOCKERHUB_USERNAME,DOCKERHUB_TOKEN,FRONTEND_IMAGE,DEPLOY_COMPOSE_FILE,DEPLOY_FRONTEND_SERVICE
+          envs: DOCKER_USERNAME,DOCKER_PASSWORD,IMAGE_REPO_NAME,FRONTEND_TAG_LATEST,DEPLOY_COMPOSE_FILE,DEPLOY_FRONTEND_SERVICE
           script: |
             set -e
-            IMAGE="$DOCKERHUB_USERNAME/$FRONTEND_IMAGE:latest"
-            docker login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_TOKEN"
+            IMAGE="$DOCKER_USERNAME/$IMAGE_REPO_NAME:$FRONTEND_TAG_LATEST"
+            docker login -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD"
             docker pull "$IMAGE"
 
             if [ -f "$DEPLOY_COMPOSE_FILE" ] && docker compose -f "$DEPLOY_COMPOSE_FILE" config --services | grep -qx "$DEPLOY_FRONTEND_SERVICE"; then
@@ -302,5 +309,5 @@ jobs:
 
             docker ps --filter "name=$DEPLOY_FRONTEND_SERVICE"
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
