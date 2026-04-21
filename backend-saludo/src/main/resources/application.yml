@@ -1,0 +1,21 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: backend-saludo
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:https://jarhead593.duckdns.org/auth/realms/FFAA}
+
+eureka:
+  client:
+    enabled: ${EUREKA_ENABLED:false}
+    register-with-eureka: ${EUREKA_ENABLED:false}
+    fetch-registry: ${EUREKA_ENABLED:false}
+    service-url:
+      defaultZone: ${EUREKA_DEFAULT_ZONE:http://eureka-server:8761/eureka/}
+  instance:
+    prefer-ip-address: true

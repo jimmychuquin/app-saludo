@@ -1,0 +1,18 @@
+services:
+  backend-saludo:
+    build:
+      context: ./backend-saludo
+      dockerfile: Dockerfile
+    container_name: backend-saludo-local
+    ports:
+      - "8081:8081"
+
+  frontend-saludo:
+    build:
+      context: ./frontend-saludo
+      dockerfile: Dockerfile
+    container_name: frontend-saludo-local
+    depends_on:
+      - backend-saludo
+    ports:
+      - "4200:80"

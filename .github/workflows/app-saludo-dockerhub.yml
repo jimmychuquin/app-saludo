@@ -1,0 +1,306 @@
+name: App-Saludo Docker Build and Push
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "backend-saludo/**"
+      - "frontend-saludo/**"
+      - ".github/workflows/app-saludo-dockerhub.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: docker.io
+  BACKEND_IMAGE: app-saludo-backend
+  FRONTEND_IMAGE: app-saludo-frontend
+  KEEP_SHA_TAGS: "3"
+  DEPLOY_COMPOSE_FILE: /srv/platform/infra/compose/docker-compose.yml
+  DEPLOY_BACKEND_SERVICE: backend-saludo
+  DEPLOY_FRONTEND_SERVICE: frontend-saludo
+  EUREKA_ENABLED: "true"
+  EUREKA_DEFAULT_ZONE: http://eureka-server:8761/eureka/
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - 'backend-saludo/**'
+            frontend:
+              - 'frontend-saludo/**'
+
+  backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend-saludo
+          file: ./backend-saludo/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.BACKEND_IMAGE }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.BACKEND_IMAGE }}:sha-${{ github.sha }}
+
+      - name: Keep only latest 3 backend SHA tags in Docker Hub
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          REPO_NAME: ${{ env.BACKEND_IMAGE }}
+          KEEP_SHA_TAGS: ${{ env.KEEP_SHA_TAGS }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+          from datetime import datetime
+
+          user = os.environ['DH_USER']
+          token = os.environ['DH_TOKEN']
+          repo = os.environ['REPO_NAME']
+          keep = int(os.environ.get('KEEP_SHA_TAGS', '3'))
+
+          login_req = urllib.request.Request(
+              'https://hub.docker.com/v2/users/login/',
+              data=json.dumps({'username': user, 'password': token}).encode('utf-8'),
+              headers={'Content-Type': 'application/json'},
+              method='POST',
+          )
+          with urllib.request.urlopen(login_req) as resp:
+              jwt = json.loads(resp.read().decode('utf-8'))['token']
+
+          headers = {'Authorization': f'JWT {jwt}'}
+          tags = []
+          url = f'https://hub.docker.com/v2/namespaces/{user}/repositories/{repo}/tags?page_size=100'
+
+          while url:
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req) as resp:
+                  data = json.loads(resp.read().decode('utf-8'))
+              tags.extend(data.get('results', []))
+              url = data.get('next')
+
+          sha_tags = []
+          for t in tags:
+              name = t.get('name', '')
+              if name.startswith('sha-'):
+                  pushed = t.get('tag_last_pushed')
+                  try:
+                      dt = datetime.fromisoformat(pushed.replace('Z', '+00:00'))
+                  except Exception:
+                      dt = datetime.min
+                  sha_tags.append((name, dt))
+
+          sha_tags.sort(key=lambda x: x[1], reverse=True)
+          to_delete = sha_tags[keep:]
+
+          for name, _ in to_delete:
+              del_url = f'https://hub.docker.com/v2/namespaces/{user}/repositories/{repo}/tags/{name}/'
+              del_req = urllib.request.Request(del_url, headers=headers, method='DELETE')
+              try:
+                  urllib.request.urlopen(del_req)
+                  print(f'Deleted old tag: {repo}:{name}')
+              except Exception as e:
+                  print(f'Could not delete {repo}:{name} -> {e}')
+
+          print(f'Total SHA tags: {len(sha_tags)} | kept: {min(keep, len(sha_tags))} | deleted: {max(0, len(sha_tags)-keep)}')
+          PY
+
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend-saludo
+          file: ./frontend-saludo/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.FRONTEND_IMAGE }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.FRONTEND_IMAGE }}:sha-${{ github.sha }}
+
+      - name: Keep only latest 3 frontend SHA tags in Docker Hub
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          REPO_NAME: ${{ env.FRONTEND_IMAGE }}
+          KEEP_SHA_TAGS: ${{ env.KEEP_SHA_TAGS }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+          from datetime import datetime
+
+          user = os.environ['DH_USER']
+          token = os.environ['DH_TOKEN']
+          repo = os.environ['REPO_NAME']
+          keep = int(os.environ.get('KEEP_SHA_TAGS', '3'))
+
+          login_req = urllib.request.Request(
+              'https://hub.docker.com/v2/users/login/',
+              data=json.dumps({'username': user, 'password': token}).encode('utf-8'),
+              headers={'Content-Type': 'application/json'},
+              method='POST',
+          )
+          with urllib.request.urlopen(login_req) as resp:
+              jwt = json.loads(resp.read().decode('utf-8'))['token']
+
+          headers = {'Authorization': f'JWT {jwt}'}
+          tags = []
+          url = f'https://hub.docker.com/v2/namespaces/{user}/repositories/{repo}/tags?page_size=100'
+
+          while url:
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req) as resp:
+                  data = json.loads(resp.read().decode('utf-8'))
+              tags.extend(data.get('results', []))
+              url = data.get('next')
+
+          sha_tags = []
+          for t in tags:
+              name = t.get('name', '')
+              if name.startswith('sha-'):
+                  pushed = t.get('tag_last_pushed')
+                  try:
+                      dt = datetime.fromisoformat(pushed.replace('Z', '+00:00'))
+                  except Exception:
+                      dt = datetime.min
+                  sha_tags.append((name, dt))
+
+          sha_tags.sort(key=lambda x: x[1], reverse=True)
+          to_delete = sha_tags[keep:]
+
+          for name, _ in to_delete:
+              del_url = f'https://hub.docker.com/v2/namespaces/{user}/repositories/{repo}/tags/{name}/'
+              del_req = urllib.request.Request(del_url, headers=headers, method='DELETE')
+              try:
+                  urllib.request.urlopen(del_req)
+                  print(f'Deleted old tag: {repo}:{name}')
+              except Exception as e:
+                  print(f'Could not delete {repo}:{name} -> {e}')
+
+          print(f'Total SHA tags: {len(sha_tags)} | kept: {min(keep, len(sha_tags))} | deleted: {max(0, len(sha_tags)-keep)}')
+          PY
+
+  deploy-backend:
+    needs: backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy backend to VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script_stop: true
+          envs: DOCKERHUB_USERNAME,DOCKERHUB_TOKEN,BACKEND_IMAGE,DEPLOY_COMPOSE_FILE,DEPLOY_BACKEND_SERVICE
+          script: |
+            set -e
+            IMAGE="$DOCKERHUB_USERNAME/$BACKEND_IMAGE:latest"
+            docker login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_TOKEN"
+            docker pull "$IMAGE"
+
+            if [ -f "$DEPLOY_COMPOSE_FILE" ] && docker compose -f "$DEPLOY_COMPOSE_FILE" config --services | grep -qx "$DEPLOY_BACKEND_SERVICE"; then
+              docker compose -f "$DEPLOY_COMPOSE_FILE" up -d --no-deps --force-recreate "$DEPLOY_BACKEND_SERVICE"
+            elif docker ps -a --format '{{.Names}}' | grep -qx "$DEPLOY_BACKEND_SERVICE"; then
+              NETWORK_NAME=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{printf "%s\n" $k}}{{end}}' "$DEPLOY_BACKEND_SERVICE" | head -n 1)
+              docker rm -f "$DEPLOY_BACKEND_SERVICE"
+              if [ -n "$NETWORK_NAME" ]; then
+                docker run -d --name "$DEPLOY_BACKEND_SERVICE" --network "$NETWORK_NAME" --restart unless-stopped -e EUREKA_ENABLED="$EUREKA_ENABLED" -e EUREKA_DEFAULT_ZONE="$EUREKA_DEFAULT_ZONE" "$IMAGE"
+              else
+                docker run -d --name "$DEPLOY_BACKEND_SERVICE" --restart unless-stopped -e EUREKA_ENABLED="$EUREKA_ENABLED" -e EUREKA_DEFAULT_ZONE="$EUREKA_DEFAULT_ZONE" "$IMAGE"
+              fi
+            else
+              echo "No se encontro servicio '$DEPLOY_BACKEND_SERVICE' en compose ni contenedor existente para actualizar"
+              exit 1
+            fi
+
+            docker ps --filter "name=$DEPLOY_BACKEND_SERVICE"
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          EUREKA_ENABLED: ${{ env.EUREKA_ENABLED }}
+          EUREKA_DEFAULT_ZONE: ${{ env.EUREKA_DEFAULT_ZONE }}
+
+  deploy-frontend:
+    needs: frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy frontend to VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script_stop: true
+          envs: DOCKERHUB_USERNAME,DOCKERHUB_TOKEN,FRONTEND_IMAGE,DEPLOY_COMPOSE_FILE,DEPLOY_FRONTEND_SERVICE
+          script: |
+            set -e
+            IMAGE="$DOCKERHUB_USERNAME/$FRONTEND_IMAGE:latest"
+            docker login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_TOKEN"
+            docker pull "$IMAGE"
+
+            if [ -f "$DEPLOY_COMPOSE_FILE" ] && docker compose -f "$DEPLOY_COMPOSE_FILE" config --services | grep -qx "$DEPLOY_FRONTEND_SERVICE"; then
+              docker compose -f "$DEPLOY_COMPOSE_FILE" up -d --no-deps --force-recreate "$DEPLOY_FRONTEND_SERVICE"
+            elif docker ps -a --format '{{.Names}}' | grep -qx "$DEPLOY_FRONTEND_SERVICE"; then
+              NETWORK_NAME=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{printf "%s\n" $k}}{{end}}' "$DEPLOY_FRONTEND_SERVICE" | head -n 1)
+              docker rm -f "$DEPLOY_FRONTEND_SERVICE"
+              if [ -n "$NETWORK_NAME" ]; then
+                docker run -d --name "$DEPLOY_FRONTEND_SERVICE" --network "$NETWORK_NAME" --restart unless-stopped "$IMAGE"
+              else
+                docker run -d --name "$DEPLOY_FRONTEND_SERVICE" --restart unless-stopped "$IMAGE"
+              fi
+            else
+              echo "No se encontro servicio '$DEPLOY_FRONTEND_SERVICE' en compose ni contenedor existente para actualizar"
+              exit 1
+            fi
+
+            docker ps --filter "name=$DEPLOY_FRONTEND_SERVICE"
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

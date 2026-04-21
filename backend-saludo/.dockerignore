@@ -1,0 +1,18 @@
+# VCS
+.git
+.gitignore
+
+# Build outputs
+target
+
+# IDE
+.idea
+.vscode
+
+# Docs / local files
+README.md
+*.log
+
+# Temp
+tmp
+temp

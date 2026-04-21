@@ -1,0 +1,34 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.iml
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Node / Angular
+frontend-saludo/node_modules/
+frontend-saludo/.angular/
+frontend-saludo/dist/
+frontend-saludo/.cache/
+frontend-saludo/coverage/
+frontend-saludo/npm-debug.log*
+frontend-saludo/yarn-error.log*
+
+# Java / Maven
+backend-saludo/target/
+backend-saludo/.mvn/wrapper/maven-wrapper.jar
+
+# Docker / temp
+*.tar
+*.zip
+tmp/
+temp/
