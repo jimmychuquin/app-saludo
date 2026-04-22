@@ -191,6 +191,8 @@ jobs:
           context: ./frontend-saludo
           file: ./frontend-saludo/Dockerfile
           push: true
+          build-args: |
+            BASE_HREF=/saludo/
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.FRONTEND_TAG_LATEST }}
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.FRONTEND_SHA_PREFIX }}${{ github.sha }}

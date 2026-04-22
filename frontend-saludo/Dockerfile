@@ -5,7 +5,10 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
-RUN npx ng build --base-href /saludo/
+
+
+ARG BASE_HREF=/saludo/
+RUN npx ng build --base-href $BASE_HREF
 
 FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
