@@ -12,5 +12,5 @@ RUN npx ng build --base-href $BASE_HREF
 
 FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist/frontend-saludo/browser /usr/share/nginx/html
+COPY --from=build /app/dist/frontend-saludo/browser /usr/share/nginx/html/saludo
 EXPOSE 80
