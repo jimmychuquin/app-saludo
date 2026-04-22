@@ -32,6 +32,7 @@ env:
   FRONTEND_SHA_PREFIX: frontend-sha-
   KEEP_SHA_TAGS: "3"
   DEPLOY_COMPOSE_FILE: /srv/platform/infra/compose/docker-compose.yml
+  DEPLOY_NETWORK: compose_app_net
   DEPLOY_BACKEND_SERVICE: backend-saludo
   DEPLOY_FRONTEND_SERVICE: frontend-saludo
   EUREKA_ENABLED: "true"
@@ -272,27 +273,30 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           script_stop: true
-          envs: DOCKER_USERNAME,DOCKER_PASSWORD,IMAGE_REPO_NAME,BACKEND_TAG_LATEST,DEPLOY_COMPOSE_FILE,DEPLOY_BACKEND_SERVICE,EUREKA_ENABLED,EUREKA_DEFAULT_ZONE
+          envs: DOCKER_USERNAME,DOCKER_PASSWORD,IMAGE_REPO_NAME,BACKEND_TAG_LATEST,DEPLOY_BACKEND_SERVICE,DEPLOY_NETWORK,EUREKA_ENABLED,EUREKA_DEFAULT_ZONE
           script: |
             set -e
             IMAGE="$DOCKER_USERNAME/$IMAGE_REPO_NAME:$BACKEND_TAG_LATEST"
             docker login -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD"
             docker pull "$IMAGE"
 
-            if [ -f "$DEPLOY_COMPOSE_FILE" ] && docker compose -f "$DEPLOY_COMPOSE_FILE" config --services | grep -qx "$DEPLOY_BACKEND_SERVICE"; then
-              docker compose -f "$DEPLOY_COMPOSE_FILE" up -d --no-deps --force-recreate "$DEPLOY_BACKEND_SERVICE"
-            elif docker ps -a --format '{{.Names}}' | grep -qx "$DEPLOY_BACKEND_SERVICE"; then
+            NETWORK_NAME=""
+            if docker ps -a --format '{{.Names}}' | grep -qx "$DEPLOY_BACKEND_SERVICE"; then
               NETWORK_NAME=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{printf "%s\n" $k}}{{end}}' "$DEPLOY_BACKEND_SERVICE" | head -n 1)
-              docker rm -f "$DEPLOY_BACKEND_SERVICE"
-              if [ -n "$NETWORK_NAME" ]; then
-                docker run -d --name "$DEPLOY_BACKEND_SERVICE" --network "$NETWORK_NAME" --restart unless-stopped -e EUREKA_ENABLED="$EUREKA_ENABLED" -e EUREKA_DEFAULT_ZONE="$EUREKA_DEFAULT_ZONE" "$IMAGE"
-              else
-                docker run -d --name "$DEPLOY_BACKEND_SERVICE" --restart unless-stopped -e EUREKA_ENABLED="$EUREKA_ENABLED" -e EUREKA_DEFAULT_ZONE="$EUREKA_DEFAULT_ZONE" "$IMAGE"
-              fi
-            else
-              echo "No se encontro servicio '$DEPLOY_BACKEND_SERVICE' en compose ni contenedor existente para actualizar"
+            elif docker network ls --format '{{.Name}}' | grep -qx "$DEPLOY_NETWORK"; then
+              NETWORK_NAME="$DEPLOY_NETWORK"
+            fi
+
+            if [ -z "$NETWORK_NAME" ]; then
+              echo "No se encontro red para desplegar '$DEPLOY_BACKEND_SERVICE'. Define DEPLOY_NETWORK correctamente en workflow."
               exit 1
             fi
+
+            if docker ps -a --format '{{.Names}}' | grep -qx "$DEPLOY_BACKEND_SERVICE"; then
+              docker rm -f "$DEPLOY_BACKEND_SERVICE"
+            fi
+
+            docker run -d --name "$DEPLOY_BACKEND_SERVICE" --network "$NETWORK_NAME" --restart unless-stopped -e EUREKA_ENABLED="$EUREKA_ENABLED" -e EUREKA_DEFAULT_ZONE="$EUREKA_DEFAULT_ZONE" "$IMAGE"
 
             docker ps --filter "name=$DEPLOY_BACKEND_SERVICE"
         env:
@@ -313,27 +317,30 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           script_stop: true
-          envs: DOCKER_USERNAME,DOCKER_PASSWORD,IMAGE_REPO_NAME,FRONTEND_TAG_LATEST,DEPLOY_COMPOSE_FILE,DEPLOY_FRONTEND_SERVICE
+          envs: DOCKER_USERNAME,DOCKER_PASSWORD,IMAGE_REPO_NAME,FRONTEND_TAG_LATEST,DEPLOY_FRONTEND_SERVICE,DEPLOY_NETWORK
           script: |
             set -e
             IMAGE="$DOCKER_USERNAME/$IMAGE_REPO_NAME:$FRONTEND_TAG_LATEST"
             docker login -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD"
             docker pull "$IMAGE"
 
-            if [ -f "$DEPLOY_COMPOSE_FILE" ] && docker compose -f "$DEPLOY_COMPOSE_FILE" config --services | grep -qx "$DEPLOY_FRONTEND_SERVICE"; then
-              docker compose -f "$DEPLOY_COMPOSE_FILE" up -d --no-deps --force-recreate "$DEPLOY_FRONTEND_SERVICE"
-            elif docker ps -a --format '{{.Names}}' | grep -qx "$DEPLOY_FRONTEND_SERVICE"; then
+            NETWORK_NAME=""
+            if docker ps -a --format '{{.Names}}' | grep -qx "$DEPLOY_FRONTEND_SERVICE"; then
               NETWORK_NAME=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{printf "%s\n" $k}}{{end}}' "$DEPLOY_FRONTEND_SERVICE" | head -n 1)
-              docker rm -f "$DEPLOY_FRONTEND_SERVICE"
-              if [ -n "$NETWORK_NAME" ]; then
-                docker run -d --name "$DEPLOY_FRONTEND_SERVICE" --network "$NETWORK_NAME" --restart unless-stopped "$IMAGE"
-              else
-                docker run -d --name "$DEPLOY_FRONTEND_SERVICE" --restart unless-stopped "$IMAGE"
-              fi
-            else
-              echo "No se encontro servicio '$DEPLOY_FRONTEND_SERVICE' en compose ni contenedor existente para actualizar"
+            elif docker network ls --format '{{.Name}}' | grep -qx "$DEPLOY_NETWORK"; then
+              NETWORK_NAME="$DEPLOY_NETWORK"
+            fi
+
+            if [ -z "$NETWORK_NAME" ]; then
+              echo "No se encontro red para desplegar '$DEPLOY_FRONTEND_SERVICE'. Define DEPLOY_NETWORK correctamente en workflow."
               exit 1
             fi
+
+            if docker ps -a --format '{{.Names}}' | grep -qx "$DEPLOY_FRONTEND_SERVICE"; then
+              docker rm -f "$DEPLOY_FRONTEND_SERVICE"
+            fi
+
+            docker run -d --name "$DEPLOY_FRONTEND_SERVICE" --network "$NETWORK_NAME" --restart unless-stopped "$IMAGE"
 
             docker ps --filter "name=$DEPLOY_FRONTEND_SERVICE"
         env:
