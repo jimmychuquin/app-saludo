@@ -35,7 +35,6 @@ env:
   DEPLOY_NETWORK: compose_app_net
   DEPLOY_BACKEND_SERVICE: backend-saludo
   DEPLOY_FRONTEND_SERVICE: frontend-saludo
-  DEPLOY_EDGE_NGINX_CONTAINER: edge-nginx
   EUREKA_ENABLED: "true"
   EUREKA_DEFAULT_ZONE: http://eureka-server:8761/eureka/
 
@@ -318,7 +317,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           script_stop: true
-          envs: DOCKER_USERNAME,DOCKER_PASSWORD,IMAGE_REPO_NAME,FRONTEND_TAG_LATEST,DEPLOY_FRONTEND_SERVICE,DEPLOY_NETWORK,DEPLOY_EDGE_NGINX_CONTAINER
+          envs: DOCKER_USERNAME,DOCKER_PASSWORD,IMAGE_REPO_NAME,FRONTEND_TAG_LATEST,DEPLOY_FRONTEND_SERVICE,DEPLOY_NETWORK
           script: |
             set -e
             IMAGE="$DOCKER_USERNAME/$IMAGE_REPO_NAME:$FRONTEND_TAG_LATEST"
@@ -342,10 +341,6 @@ jobs:
             fi
 
             docker run -d --name "$DEPLOY_FRONTEND_SERVICE" --network "$NETWORK_NAME" --restart unless-stopped "$IMAGE"
-
-            if docker ps -a --format '{{.Names}}' | grep -qx "$DEPLOY_EDGE_NGINX_CONTAINER"; then
-              docker restart "$DEPLOY_EDGE_NGINX_CONTAINER"
-            fi
 
             docker ps --filter "name=$DEPLOY_FRONTEND_SERVICE"
         env:
