@@ -196,6 +196,7 @@ jobs:
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.FRONTEND_TAG_LATEST }}
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.FRONTEND_SHA_PREFIX }}${{ github.sha }}
+          no-cache: true
 
       - name: Keep only latest 3 frontend SHA tags in Docker Hub
         env:
