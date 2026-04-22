@@ -2,12 +2,23 @@ name: App-Saludo Docker Build and Push
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "desarrollo"]
     paths:
       - "backend-saludo/**"
       - "frontend-saludo/**"
       - ".github/workflows/app-saludo-dockerhub.yml"
   workflow_dispatch:
+    inputs:
+      force_backend:
+        description: "Forzar build/deploy de backend"
+        required: false
+        default: false
+        type: boolean
+      force_frontend:
+        description: "Forzar build/deploy de frontend"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -30,8 +41,8 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-      frontend: ${{ steps.filter.outputs.frontend }}
+      backend: ${{ steps.select.outputs.backend }}
+      frontend: ${{ steps.select.outputs.frontend }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,6 +56,23 @@ jobs:
               - 'backend-saludo/**'
             frontend:
               - 'frontend-saludo/**'
+
+      - name: Resolve effective targets
+        id: select
+        run: |
+          backend="${{ steps.filter.outputs.backend }}"
+          frontend="${{ steps.filter.outputs.frontend }}"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_backend }}" = "true" ]; then
+            backend="true"
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_frontend }}" = "true" ]; then
+            frontend="true"
+          fi
+
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"
+          echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
 
   backend:
     needs: changes
