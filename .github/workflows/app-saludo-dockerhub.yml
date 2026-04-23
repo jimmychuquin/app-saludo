@@ -102,71 +102,14 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.BACKEND_TAG_LATEST }}
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.BACKEND_SHA_PREFIX }}${{ github.sha }}
 
-      - name: Keep only latest 3 backend SHA tags in Docker Hub
-        env:
-          DH_USER: ${{ secrets.DOCKER_USERNAME }}
-          DH_TOKEN: ${{ secrets.DOCKER_PASSWORD }}
-          REPO_NAME: ${{ env.IMAGE_REPO_NAME }}
-          TAG_PREFIX: ${{ env.BACKEND_SHA_PREFIX }}
-          KEEP_SHA_TAGS: ${{ env.KEEP_SHA_TAGS }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          import urllib.request
-          from datetime import datetime
-
-          user = os.environ['DH_USER']
-          token = os.environ['DH_TOKEN']
-          repo = os.environ['REPO_NAME']
-          keep = int(os.environ.get('KEEP_SHA_TAGS', '3'))
-          tag_prefix = os.environ.get('TAG_PREFIX', 'sha-')
-
-          login_req = urllib.request.Request(
-              'https://hub.docker.com/v2/users/login/',
-              data=json.dumps({'username': user, 'password': token}).encode('utf-8'),
-              headers={'Content-Type': 'application/json'},
-              method='POST',
-          )
-          with urllib.request.urlopen(login_req) as resp:
-              jwt = json.loads(resp.read().decode('utf-8'))['token']
-
-          headers = {'Authorization': f'JWT {jwt}'}
-          tags = []
-          url = f'https://hub.docker.com/v2/namespaces/{user}/repositories/{repo}/tags?page_size=100'
-
-          while url:
-              req = urllib.request.Request(url, headers=headers)
-              with urllib.request.urlopen(req) as resp:
-                  data = json.loads(resp.read().decode('utf-8'))
-              tags.extend(data.get('results', []))
-              url = data.get('next')
-
-          sha_tags = []
-          for t in tags:
-              name = t.get('name', '')
-              if name.startswith(tag_prefix):
-                  pushed = t.get('tag_last_pushed')
-                  try:
-                      dt = datetime.fromisoformat(pushed.replace('Z', '+00:00'))
-                  except Exception:
-                      dt = datetime.min
-                  sha_tags.append((name, dt))
-
-          sha_tags.sort(key=lambda x: x[1], reverse=True)
-          to_delete = sha_tags[keep:]
-
-          for name, _ in to_delete:
-              del_url = f'https://hub.docker.com/v2/namespaces/{user}/repositories/{repo}/tags/{name}/'
-              del_req = urllib.request.Request(del_url, headers=headers, method='DELETE')
-              try:
-                  urllib.request.urlopen(del_req)
-                  print(f'Deleted old tag: {repo}:{name}')
-              except Exception as e:
-                  print(f'Could not delete {repo}:{name} -> {e}')
-
-          print(f'Total SHA tags: {len(sha_tags)} | kept: {min(keep, len(sha_tags))} | deleted: {max(0, len(sha_tags)-keep)}')
-          PY
+      - name: Clean up old backend SHA tags
+        uses: dataaxiom/dockerhub-cleanup-action@v2
+        with:
+          user: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          repository: ${{ env.IMAGE_REPO_NAME }}
+          tags: ${{ env.BACKEND_SHA_PREFIX }}*
+          keep: ${{ env.KEEP_SHA_TAGS }}
 
   frontend:
     needs: changes
@@ -198,72 +141,15 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.FRONTEND_SHA_PREFIX }}${{ github.sha }}
           no-cache: true
 
-      - name: Keep only latest 3 frontend SHA tags in Docker Hub
-        env:
-          DH_USER: ${{ secrets.DOCKER_USERNAME }}
-          DH_TOKEN: ${{ secrets.DOCKER_PASSWORD }}
-          REPO_NAME: ${{ env.IMAGE_REPO_NAME }}
-          TAG_PREFIX: ${{ env.FRONTEND_SHA_PREFIX }}
-          KEEP_SHA_TAGS: ${{ env.KEEP_SHA_TAGS }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          import urllib.request
-          from datetime import datetime
-
-          user = os.environ['DH_USER']
-          token = os.environ['DH_TOKEN']
-          repo = os.environ['REPO_NAME']
-          keep = int(os.environ.get('KEEP_SHA_TAGS', '3'))
-          tag_prefix = os.environ.get('TAG_PREFIX', 'sha-')
-
-          login_req = urllib.request.Request(
-              'https://hub.docker.com/v2/users/login/',
-              data=json.dumps({'username': user, 'password': token}).encode('utf-8'),
-              headers={'Content-Type': 'application/json'},
-              method='POST',
-          )
-          with urllib.request.urlopen(login_req) as resp:
-              jwt = json.loads(resp.read().decode('utf-8'))['token']
-
-          headers = {'Authorization': f'JWT {jwt}'}
-          tags = []
-          url = f'https://hub.docker.com/v2/namespaces/{user}/repositories/{repo}/tags?page_size=100'
-
-          while url:
-              req = urllib.request.Request(url, headers=headers)
-              with urllib.request.urlopen(req) as resp:
-                  data = json.loads(resp.read().decode('utf-8'))
-              tags.extend(data.get('results', []))
-              url = data.get('next')
-
-          sha_tags = []
-          for t in tags:
-              name = t.get('name', '')
-              if name.startswith(tag_prefix):
-                  pushed = t.get('tag_last_pushed')
-                  try:
-                      dt = datetime.fromisoformat(pushed.replace('Z', '+00:00'))
-                  except Exception:
-                      dt = datetime.min
-                  sha_tags.append((name, dt))
-
-          sha_tags.sort(key=lambda x: x[1], reverse=True)
-          to_delete = sha_tags[keep:]
-
-          for name, _ in to_delete:
-              del_url = f'https://hub.docker.com/v2/namespaces/{user}/repositories/{repo}/tags/{name}/'
-              del_req = urllib.request.Request(del_url, headers=headers, method='DELETE')
-              try:
-                  urllib.request.urlopen(del_req)
-                  print(f'Deleted old tag: {repo}:{name}')
-              except Exception as e:
-                  print(f'Could not delete {repo}:{name} -> {e}')
-
-          print(f'Total SHA tags: {len(sha_tags)} | kept: {min(keep, len(sha_tags))} | deleted: {max(0, len(sha_tags)-keep)}')
-          PY
-
+      - name: Clean up old frontend SHA tags
+        uses: dataaxiom/dockerhub-cleanup-action@v2
+        with:
+          user: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          repository: ${{ env.IMAGE_REPO_NAME }}
+          tags: ${{ env.FRONTEND_SHA_PREFIX }}*
+          keep: ${{ env.KEEP_SHA_TAGS }}
+      
   deploy-backend:
     needs: backend
     runs-on: ubuntu-latest
