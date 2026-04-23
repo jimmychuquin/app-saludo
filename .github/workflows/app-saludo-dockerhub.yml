@@ -30,7 +30,7 @@ env:
   FRONTEND_TAG_LATEST: frontend-latest
   BACKEND_SHA_PREFIX: backend-sha-
   FRONTEND_SHA_PREFIX: frontend-sha-
-  KEEP_SHA_TAGS: "2"
+  KEEP_SHA_TAGS: "1"
   DEPLOY_COMPOSE_FILE: /srv/platform/infra/compose/docker-compose.yml
   DEPLOY_NETWORK: compose_app_net
   DEPLOY_BACKEND_SERVICE: backend-saludo
@@ -102,14 +102,37 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.BACKEND_TAG_LATEST }}
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.BACKEND_SHA_PREFIX }}${{ github.sha }}
 
-      - name: Clean up old backend SHA tags
-        uses: chrisdickinson/docker-hub-cleanup@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-          repository: ${{ env.IMAGE_REPO_NAME }}
-          tags: ${{ env.BACKEND_SHA_PREFIX }}*
-          keep: ${{ env.KEEP_SHA_TAGS }}
+      - name: Cleanup old backend SHA tags
+        run: |
+          set -e
+          REPO="${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}"
+          PREFIX="${{ env.BACKEND_SHA_PREFIX }}"
+          KEEP="${{ env.KEEP_SHA_TAGS }}"
+
+          echo "Manteniendo $KEEP tags para backend"
+
+          TOKEN=$(curl -s -H "Content-Type: application/json" \
+            -X POST \
+            -d '{"username": "'${{ secrets.DOCKER_USERNAME }}'", "password": "'${{ secrets.DOCKER_PASSWORD }}'"}' \
+            https://hub.docker.com/v2/users/login/ | jq -r .token)
+
+          TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
+            "https://hub.docker.com/v2/repositories/$REPO/tags?page_size=100" \
+            | jq -r '.results[].name' | grep "^$PREFIX" | sort -r)
+
+          COUNT=0
+
+          for TAG in $TAGS; do
+            COUNT=$((COUNT+1))
+            if [ "$COUNT" -gt "$KEEP" ]; then
+              echo "Eliminando $TAG"
+              curl -s -X DELETE \
+                -H "Authorization: JWT $TOKEN" \
+                "https://hub.docker.com/v2/repositories/$REPO/tags/$TAG/"
+            else
+              echo "Manteniendo $TAG"
+            fi
+          done
 
   frontend:
     needs: changes
@@ -141,15 +164,38 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.FRONTEND_SHA_PREFIX }}${{ github.sha }}
           no-cache: true
 
-      - name: Clean up old frontend SHA tags
-        uses: chrisdickinson/docker-hub-cleanup@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-          repository: ${{ env.IMAGE_REPO_NAME }}
-          tags: ${{ env.FRONTEND_SHA_PREFIX }}*
-          keep: ${{ env.KEEP_SHA_TAGS }}
-      
+      - name: Cleanup old frontend SHA tags
+        run: |
+          set -e
+
+          REPO="${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}"
+          PREFIX="${{ env.FRONTEND_SHA_PREFIX }}"
+          KEEP="${{ env.KEEP_SHA_TAGS }}"
+
+          echo "Manteniendo $KEEP tags para frontend"
+
+          TOKEN=$(curl -s -H "Content-Type: application/json" \
+            -X POST \
+            -d '{"username": "'${{ secrets.DOCKER_USERNAME }}'", "password": "'${{ secrets.DOCKER_PASSWORD }}'"}' \
+            https://hub.docker.com/v2/users/login/ | jq -r .token)
+
+          TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
+            "https://hub.docker.com/v2/repositories/$REPO/tags?page_size=100" \
+            | jq -r '.results[].name' | grep "^$PREFIX" | sort -r)
+
+          COUNT=0
+
+          for TAG in $TAGS; do
+            COUNT=$((COUNT+1))
+            if [ "$COUNT" -gt "$KEEP" ]; then
+              echo "Eliminando $TAG"
+              curl -s -X DELETE \
+                -H "Authorization: JWT $TOKEN" \
+                "https://hub.docker.com/v2/repositories/$REPO/tags/$TAG/"
+            else
+              echo "Manteniendo $TAG"
+            fi
+          done
   deploy-backend:
     needs: backend
     runs-on: ubuntu-latest
