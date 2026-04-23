@@ -103,9 +103,9 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.BACKEND_SHA_PREFIX }}${{ github.sha }}
 
       - name: Clean up old backend SHA tags
-        uses: dataaxiom/dockerhub-cleanup-action@v2
+        uses: chrisdickinson/docker-hub-cleanup@v3
         with:
-          user: ${{ secrets.DOCKER_USERNAME }}
+          username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
           repository: ${{ env.IMAGE_REPO_NAME }}
           tags: ${{ env.BACKEND_SHA_PREFIX }}*
@@ -142,9 +142,9 @@ jobs:
           no-cache: true
 
       - name: Clean up old frontend SHA tags
-        uses: dataaxiom/dockerhub-cleanup-action@v2
+        uses: chrisdickinson/docker-hub-cleanup@v3
         with:
-          user: ${{ secrets.DOCKER_USERNAME }}
+          username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
           repository: ${{ env.IMAGE_REPO_NAME }}
           tags: ${{ env.FRONTEND_SHA_PREFIX }}*
