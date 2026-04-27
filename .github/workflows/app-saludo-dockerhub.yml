@@ -28,8 +28,7 @@ env:
   BACKEND_SHA_PREFIX: backend-sha-
   FRONTEND_SHA_PREFIX: frontend-sha-
   KEEP_SHA_TAGS: "1"
-  # Red correcta (verifica con docker inspect)
-  DEPLOY_NETWORK: internal   # o internal, según tu compose
+  #DEPLOY_NETWORK: internal   # o internal, según tu compose
 
 jobs:
   changes:
