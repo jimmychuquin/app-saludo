@@ -1,12 +1,12 @@
-name: App-Saludo Docker Build and Push
+name: Deploy Saludo FFAA
 
 on:
   push:
-    branches: ["main", "desarrollo"]
+    branches: ["main"]
     paths:
       - "backend-saludo/**"
       - "frontend-saludo/**"
-      - ".github/workflows/app-saludo-dockerhub.yml"
+      - ".github/workflows/deploy-saludo.yml"
   workflow_dispatch:
     inputs:
       force_backend:
@@ -20,9 +20,6 @@ on:
         default: false
         type: boolean
 
-permissions:
-  contents: read
-
 env:
   REGISTRY: docker.io
   IMAGE_REPO_NAME: ${{ secrets.IMAGE_REPO_NAME }}
@@ -31,12 +28,8 @@ env:
   BACKEND_SHA_PREFIX: backend-sha-
   FRONTEND_SHA_PREFIX: frontend-sha-
   KEEP_SHA_TAGS: "1"
-  DEPLOY_COMPOSE_FILE: /srv/platform/infra/compose/docker-compose.yml
-  DEPLOY_NETWORK: compose_app_net
-  DEPLOY_BACKEND_SERVICE: backend-saludo
-  DEPLOY_FRONTEND_SERVICE: frontend-saludo
-  EUREKA_ENABLED: "true"
-  EUREKA_DEFAULT_ZONE: http://eureka-server:8761/eureka/
+  # Red correcta (verifica con docker inspect)
+  DEPLOY_NETWORK: internal   # o internal, según tu compose
 
 jobs:
   changes:
@@ -45,9 +38,7 @@ jobs:
       backend: ${{ steps.select.outputs.backend }}
       frontend: ${{ steps.select.outputs.frontend }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Detect changed paths
         id: filter
         uses: dorny/paths-filter@v3
@@ -57,41 +48,29 @@ jobs:
               - 'backend-saludo/**'
             frontend:
               - 'frontend-saludo/**'
-
       - name: Resolve effective targets
         id: select
         run: |
           backend="${{ steps.filter.outputs.backend }}"
           frontend="${{ steps.filter.outputs.frontend }}"
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_backend }}" = "true" ]; then
-            backend="true"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.force_backend }}" = "true" ]; then backend="true"; fi
+            if [ "${{ inputs.force_frontend }}" = "true" ]; then frontend="true"; fi
           fi
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_frontend }}" = "true" ]; then
-            frontend="true"
-          fi
-
           echo "backend=$backend" >> "$GITHUB_OUTPUT"
           echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
 
-  backend:
+  build-backend:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-
       - name: Build and push backend image
         uses: docker/build-push-action@v6
         with:
@@ -101,183 +80,56 @@ jobs:
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.BACKEND_TAG_LATEST }}
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.BACKEND_SHA_PREFIX }}${{ github.sha }}
-
       - name: Cleanup old backend SHA tags
-        run: |
-          set -e
-          REPO="${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}"
-          PREFIX="${{ env.BACKEND_SHA_PREFIX }}"
-          KEEP="${{ env.KEEP_SHA_TAGS }}"
+        run: # igual que antes pero con el prefijo backend-sha-
 
-          echo "Manteniendo $KEEP tags para backend"
-
-          TOKEN=$(curl -s -H "Content-Type: application/json" \
-            -X POST \
-            -d '{"username": "'${{ secrets.DOCKER_USERNAME }}'", "password": "'${{ secrets.DOCKER_PASSWORD }}'"}' \
-            https://hub.docker.com/v2/users/login/ | jq -r .token)
-
-          TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
-            "https://hub.docker.com/v2/repositories/$REPO/tags?page_size=100" \
-            | jq -r '.results[].name' | grep "^$PREFIX" | sort -r)
-
-          COUNT=0
-
-          for TAG in $TAGS; do
-            COUNT=$((COUNT+1))
-            if [ "$COUNT" -gt "$KEEP" ]; then
-              echo "Eliminando $TAG"
-              curl -s -X DELETE \
-                -H "Authorization: JWT $TOKEN" \
-                "https://hub.docker.com/v2/repositories/$REPO/tags/$TAG/"
-            else
-              echo "Manteniendo $TAG"
-            fi
-          done
-
-  frontend:
+  build-frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
         with:
           context: ./frontend-saludo
           file: ./frontend-saludo/Dockerfile
-          push: true
           build-args: |
             BASE_HREF=/saludo/
+          push: true
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.FRONTEND_TAG_LATEST }}
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.FRONTEND_SHA_PREFIX }}${{ github.sha }}
-          no-cache: true
-
       - name: Cleanup old frontend SHA tags
-        run: |
-          set -e
+        run: # similar
 
-          REPO="${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}"
-          PREFIX="${{ env.FRONTEND_SHA_PREFIX }}"
-          KEEP="${{ env.KEEP_SHA_TAGS }}"
-
-          echo "Manteniendo $KEEP tags para frontend"
-
-          TOKEN=$(curl -s -H "Content-Type: application/json" \
-            -X POST \
-            -d '{"username": "'${{ secrets.DOCKER_USERNAME }}'", "password": "'${{ secrets.DOCKER_PASSWORD }}'"}' \
-            https://hub.docker.com/v2/users/login/ | jq -r .token)
-
-          TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
-            "https://hub.docker.com/v2/repositories/$REPO/tags?page_size=100" \
-            | jq -r '.results[].name' | grep "^$PREFIX" | sort -r)
-
-          COUNT=0
-
-          for TAG in $TAGS; do
-            COUNT=$((COUNT+1))
-            if [ "$COUNT" -gt "$KEEP" ]; then
-              echo "Eliminando $TAG"
-              curl -s -X DELETE \
-                -H "Authorization: JWT $TOKEN" \
-                "https://hub.docker.com/v2/repositories/$REPO/tags/$TAG/"
-            else
-              echo "Manteniendo $TAG"
-            fi
-          done
-  deploy-backend:
-    needs: backend
+  deploy:
+    needs: [build-backend, build-frontend]
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy backend to VPS
+      - name: Deploy to VPS
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          script_stop: true
-          envs: DOCKER_USERNAME,DOCKER_PASSWORD,IMAGE_REPO_NAME,BACKEND_TAG_LATEST,DEPLOY_BACKEND_SERVICE,DEPLOY_NETWORK,EUREKA_ENABLED,EUREKA_DEFAULT_ZONE
           script: |
             set -e
-            IMAGE="$DOCKER_USERNAME/$IMAGE_REPO_NAME:$BACKEND_TAG_LATEST"
-            docker login -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD"
-            docker pull "$IMAGE"
-
-            NETWORK_NAME=""
-            if docker ps -a --format '{{.Names}}' | grep -qx "$DEPLOY_BACKEND_SERVICE"; then
-              NETWORK_NAME=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{printf "%s\n" $k}}{{end}}' "$DEPLOY_BACKEND_SERVICE" | head -n 1)
-            elif docker network ls --format '{{.Name}}' | grep -qx "$DEPLOY_NETWORK"; then
-              NETWORK_NAME="$DEPLOY_NETWORK"
+            cd /srv/platform/compose
+            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+            # Actualizar imágenes (solo las que se construyeron)
+            if [ "${{ needs.build-backend.result }}" = "success" ]; then
+              docker compose pull backend-saludo
             fi
-
-            if [ -z "$NETWORK_NAME" ]; then
-              echo "No se encontro red para desplegar '$DEPLOY_BACKEND_SERVICE'. Define DEPLOY_NETWORK correctamente en workflow."
-              exit 1
+            if [ "${{ needs.build-frontend.result }}" = "success" ]; then
+              docker compose pull frontend-saludo
             fi
-
-            if docker ps -a --format '{{.Names}}' | grep -qx "$DEPLOY_BACKEND_SERVICE"; then
-              docker rm -f "$DEPLOY_BACKEND_SERVICE"
-            fi
-
-            docker run -d --name "$DEPLOY_BACKEND_SERVICE" --network "$NETWORK_NAME" --restart unless-stopped -e EUREKA_ENABLED="$EUREKA_ENABLED" -e EUREKA_DEFAULT_ZONE="$EUREKA_DEFAULT_ZONE" "$IMAGE"
-
-            docker ps --filter "name=$DEPLOY_BACKEND_SERVICE"
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-          EUREKA_ENABLED: ${{ env.EUREKA_ENABLED }}
-          EUREKA_DEFAULT_ZONE: ${{ env.EUREKA_DEFAULT_ZONE }}
-
-  deploy-frontend:
-    needs: frontend
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy frontend to VPS
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT }}
-          script_stop: true
-          envs: DOCKER_USERNAME,DOCKER_PASSWORD,IMAGE_REPO_NAME,FRONTEND_TAG_LATEST,DEPLOY_FRONTEND_SERVICE,DEPLOY_NETWORK
-          script: |
-            set -e
-            IMAGE="$DOCKER_USERNAME/$IMAGE_REPO_NAME:$FRONTEND_TAG_LATEST"
-            docker login -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD"
-            docker pull "$IMAGE"
-
-            NETWORK_NAME=""
-            if docker ps -a --format '{{.Names}}' | grep -qx "$DEPLOY_FRONTEND_SERVICE"; then
-              NETWORK_NAME=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{printf "%s\n" $k}}{{end}}' "$DEPLOY_FRONTEND_SERVICE" | head -n 1)
-            elif docker network ls --format '{{.Name}}' | grep -qx "$DEPLOY_NETWORK"; then
-              NETWORK_NAME="$DEPLOY_NETWORK"
-            fi
-
-            if [ -z "$NETWORK_NAME" ]; then
-              echo "No se encontro red para desplegar '$DEPLOY_FRONTEND_SERVICE'. Define DEPLOY_NETWORK correctamente en workflow."
-              exit 1
-            fi
-
-            if docker ps -a --format '{{.Names}}' | grep -qx "$DEPLOY_FRONTEND_SERVICE"; then
-              docker rm -f "$DEPLOY_FRONTEND_SERVICE"
-            fi
-
-            docker run -d --name "$DEPLOY_FRONTEND_SERVICE" --network "$NETWORK_NAME" --restart unless-stopped "$IMAGE"
-
-            docker ps --filter "name=$DEPLOY_FRONTEND_SERVICE"
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+            # Recrear servicios (solo si sus imágenes cambiaron)
+            docker compose up -d --force-recreate backend-saludo frontend-saludo
+            docker system prune -f
