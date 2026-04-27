@@ -10,7 +10,7 @@ import { getAccessToken, logout } from './auth';
   template: `
     <main class="page">
       <section class="card">
-        <h1>App Saludo</h1>
+        <h1>Aplicacion de Prueba Saludo</h1>
         <p class="subtitle">Frontend conectado con backend-saludo</p>
 
         <div class="buttons">
