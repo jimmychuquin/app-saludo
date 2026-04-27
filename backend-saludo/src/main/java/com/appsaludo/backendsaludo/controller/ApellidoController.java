@@ -10,6 +10,6 @@ public class ApellidoController {
 
   @GetMapping("/apellido")
   public String obtenerApellido() {
-    return "chuquin chuquin";
+    return "espinosa espinosa";
   }
 }
