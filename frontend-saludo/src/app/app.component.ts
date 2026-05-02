@@ -10,8 +10,8 @@ import { getAccessToken, logout } from './auth';
   template: `
     <main class="page">
       <section class="card">
-        <h1>Aplicacion de Prueba Saludo Implementacion back-front</h1>
-        <p class="subtitle">Frontend conectado con backend-saludo</p>
+        <h1>Aplicacion de Prueba Saludo Implementacion back-front Jarhead 593</h1>
+        <p class="subtitle">Frontend conectado con backend-saludo repuesta 593Jarhead</p>
 
         <div class="buttons">
           <button type="button" (click)="cargarSaludo()">GET /api/saludo</button>
@@ -27,7 +27,7 @@ import { getAccessToken, logout } from './auth';
           <p><strong>Apellido:</strong> {{ apellido || '-' }}</p>
         </div>
 
-        <h2 class="message">{{ mensajeFinal || 'Haz clic en los botones para consumir las APIs y comprobar el funcionamiento' }}</h2>
+        <h2 class="message">{{ mensajeFinal || 'Haz clic en los botones para consumir las APIs y comprobar el funcionamiento de asludo jarhead593' }}</h2>
       </section>
     </main>
   `
