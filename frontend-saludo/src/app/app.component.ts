@@ -10,8 +10,8 @@ import { getAccessToken, logout } from './auth';
   template: `
     <main class="page">
       <section class="card">
-        <h1>Prueba Saludo Implementacion 2</h1>
-        <p class="subtitle">Frontend conectado con backend-saludo 2</p>
+        <h1>Prueba Saludo Implementacion 3</h1>
+        <p class="subtitle">Frontend conectado con backend-saludo 3</p>
 
         <div class="buttons">
           <button type="button" (click)="cargarSaludo()">GET /api/saludo</button>
