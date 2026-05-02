@@ -25,9 +25,6 @@ env:
   IMAGE_REPO_NAME: ${{ secrets.IMAGE_REPO_NAME }}
   BACKEND_TAG_LATEST: backend-latest
   FRONTEND_TAG_LATEST: frontend-latest
-  BACKEND_SHA_PREFIX: backend-sha-
-  FRONTEND_SHA_PREFIX: frontend-sha-
-  KEEP_SHA_TAGS: "1"
 
 jobs:
   changes:
@@ -37,6 +34,7 @@ jobs:
       frontend: ${{ steps.select.outputs.frontend }}
     steps:
       - uses: actions/checkout@v4
+
       - name: Detect changed paths
         id: filter
         uses: dorny/paths-filter@v3
@@ -46,15 +44,18 @@ jobs:
               - 'backend-saludo/**'
             frontend:
               - 'frontend-saludo/**'
-      - name: Resolve effective targets
+
+      - name: Resolve targets
         id: select
         run: |
           backend="${{ steps.filter.outputs.backend }}"
           frontend="${{ steps.filter.outputs.frontend }}"
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             if [ "${{ inputs.force_backend }}" = "true" ]; then backend="true"; fi
             if [ "${{ inputs.force_frontend }}" = "true" ]; then frontend="true"; fi
           fi
+
           echo "backend=$backend" >> "$GITHUB_OUTPUT"
           echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
 
@@ -64,14 +65,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Login to Docker Hub
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      - name: Build and push backend image
+
+      - name: Build & Push Backend
         uses: docker/build-push-action@v6
         with:
           context: ./backend-saludo
@@ -79,22 +82,6 @@ jobs:
           push: true
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.BACKEND_TAG_LATEST }}
-            ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.BACKEND_SHA_PREFIX }}${{ github.sha }}
-      - name: Cleanup old backend SHA tags
-        run: |
-          set -e
-          REPO="${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}"
-          PREFIX="${{ env.BACKEND_SHA_PREFIX }}"
-          KEEP="${{ env.KEEP_SHA_TAGS }}"
-          TOKEN=$(curl -s -X POST -H "Content-Type: application/json" -d '{"username":"${{ secrets.DOCKER_USERNAME }}","password":"${{ secrets.DOCKER_PASSWORD }}"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
-          TAGS=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$REPO/tags?page_size=100" | jq -r '.results[] | select(.name | startswith("'"$PREFIX"'")) | "\(.last_updated) \(.name)"' | sort -r | awk '{print $2}')
-          COUNT=0
-          for TAG in $TAGS; do
-            COUNT=$((COUNT+1))
-            if [ "$COUNT" -gt "$KEEP" ]; then
-              curl -s -X DELETE -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$REPO/tags/$TAG/"
-            fi
-          done
 
   build-frontend:
     needs: changes
@@ -102,14 +89,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Login to Docker Hub
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      - name: Build and push frontend image
+
+      - name: Build & Push Frontend
         uses: docker/build-push-action@v6
         with:
           context: ./frontend-saludo
@@ -119,28 +108,12 @@ jobs:
           push: true
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.FRONTEND_TAG_LATEST }}
-            ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}:${{ env.FRONTEND_SHA_PREFIX }}${{ github.sha }}
-      - name: Cleanup old frontend SHA tags
-        run: |
-          set -e
-          REPO="${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}"
-          PREFIX="${{ env.FRONTEND_SHA_PREFIX }}"
-          KEEP="${{ env.KEEP_SHA_TAGS }}"
-          TOKEN=$(curl -s -X POST -H "Content-Type: application/json" -d '{"username":"${{ secrets.DOCKER_USERNAME }}","password":"${{ secrets.DOCKER_PASSWORD }}"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
-          TAGS=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$REPO/tags?page_size=100" | jq -r '.results[] | select(.name | startswith("'"$PREFIX"'")) | "\(.last_updated) \(.name)"' | sort -r | awk '{print $2}')
-          COUNT=0
-          for TAG in $TAGS; do
-            COUNT=$((COUNT+1))
-            if [ "$COUNT" -gt "$KEEP" ]; then
-              curl -s -X DELETE -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$REPO/tags/$TAG/"
-            fi
-          done
 
   deploy:
     needs: [build-backend, build-frontend]
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to VPS
+      - name: Deploy en VPS (SIN downtime)
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -149,17 +122,16 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
+
             cd /srv/platform/compose
+
             echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-            
-            # Forzar la descarga de las últimas imágenes
+
+            echo "📥 Descargando imágenes nuevas..."
             docker compose pull backend-saludo frontend-saludo
-            
-            # Eliminar los contenedores antiguos (opcional, pero asegura recreación)
-            docker compose rm -f backend-saludo frontend-saludo 2>/dev/null || true
-            
-            # Recrear los contenedores con las nuevas imágenes
-            docker compose up -d backend-saludo frontend-saludo
-            
-            # Limpiar recursos no utilizados (imágenes huérfanas, etc.)
+
+            echo "🚀 Actualizando contenedores SIN downtime..."
+            docker compose up -d --force-recreate backend-saludo frontend-saludo
+
+            echo "🧹 Limpieza..."
             docker system prune -f
