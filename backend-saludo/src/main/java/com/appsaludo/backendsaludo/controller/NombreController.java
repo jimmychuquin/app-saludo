@@ -10,6 +10,6 @@ public class NombreController {
 
   @GetMapping("/nombre")
   public String obtenerNombre() {
-    return "Jose Domingo Maria Mercedes Jimmy Eduardo";
+    return "jimena";
   }
 }
