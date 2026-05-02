@@ -64,8 +64,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -84,31 +86,13 @@ jobs:
           REPO="${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}"
           PREFIX="${{ env.BACKEND_SHA_PREFIX }}"
           KEEP="${{ env.KEEP_SHA_TAGS }}"
-
-          echo "Limpiando tags SHA para backend (conservando $KEEP + latest)"
-          TOKEN=$(curl -s -H "Content-Type: application/json" \
-            -X POST \
-            -d '{"username": "'${{ secrets.DOCKER_USERNAME }}'", "password": "'${{ secrets.DOCKER_PASSWORD }}'"}' \
-            https://hub.docker.com/v2/users/login/ | jq -r .token)
-
-          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
-            echo "Error obteniendo token"
-            exit 1
-          fi
-
-          TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
-            "https://hub.docker.com/v2/repositories/$REPO/tags?page_size=100" \
-            | jq -r '.results[] | select(.name | startswith("'"$PREFIX"'")) | "\(.last_updated) \(.name)"' \
-            | sort -r | awk '{print $2}')
-
+          TOKEN=$(curl -s -X POST -H "Content-Type: application/json" -d '{"username":"${{ secrets.DOCKER_USERNAME }}","password":"${{ secrets.DOCKER_PASSWORD }}"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
+          TAGS=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$REPO/tags?page_size=100" | jq -r '.results[] | select(.name | startswith("'"$PREFIX"'")) | "\(.last_updated) \(.name)"' | sort -r | awk '{print $2}')
           COUNT=0
           for TAG in $TAGS; do
             COUNT=$((COUNT+1))
             if [ "$COUNT" -gt "$KEEP" ]; then
-              echo "Eliminando tag $TAG"
               curl -s -X DELETE -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$REPO/tags/$TAG/"
-            else
-              echo "Manteniendo tag $TAG"
             fi
           done
 
@@ -118,8 +102,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -140,31 +126,13 @@ jobs:
           REPO="${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_REPO_NAME }}"
           PREFIX="${{ env.FRONTEND_SHA_PREFIX }}"
           KEEP="${{ env.KEEP_SHA_TAGS }}"
-
-          echo "Limpiando tags SHA para frontend (conservando $KEEP + latest)"
-          TOKEN=$(curl -s -H "Content-Type: application/json" \
-            -X POST \
-            -d '{"username": "'${{ secrets.DOCKER_USERNAME }}'", "password": "'${{ secrets.DOCKER_PASSWORD }}'"}' \
-            https://hub.docker.com/v2/users/login/ | jq -r .token)
-
-          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
-            echo "Error obteniendo token"
-            exit 1
-          fi
-
-          TAGS=$(curl -s -H "Authorization: JWT $TOKEN" \
-            "https://hub.docker.com/v2/repositories/$REPO/tags?page_size=100" \
-            | jq -r '.results[] | select(.name | startswith("'"$PREFIX"'")) | "\(.last_updated) \(.name)"' \
-            | sort -r | awk '{print $2}')
-
+          TOKEN=$(curl -s -X POST -H "Content-Type: application/json" -d '{"username":"${{ secrets.DOCKER_USERNAME }}","password":"${{ secrets.DOCKER_PASSWORD }}"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
+          TAGS=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$REPO/tags?page_size=100" | jq -r '.results[] | select(.name | startswith("'"$PREFIX"'")) | "\(.last_updated) \(.name)"' | sort -r | awk '{print $2}')
           COUNT=0
           for TAG in $TAGS; do
             COUNT=$((COUNT+1))
             if [ "$COUNT" -gt "$KEEP" ]; then
-              echo "Eliminando tag $TAG"
               curl -s -X DELETE -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$REPO/tags/$TAG/"
-            else
-              echo "Manteniendo tag $TAG"
             fi
           done
 
@@ -183,6 +151,15 @@ jobs:
             set -e
             cd /srv/platform/compose
             echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+            
+            # Forzar la descarga de las últimas imágenes
             docker compose pull backend-saludo frontend-saludo
-            docker compose up -d --force-recreate backend-saludo frontend-saludo
+            
+            # Eliminar los contenedores antiguos (opcional, pero asegura recreación)
+            docker compose rm -f backend-saludo frontend-saludo 2>/dev/null || true
+            
+            # Recrear los contenedores con las nuevas imágenes
+            docker compose up -d backend-saludo frontend-saludo
+            
+            # Limpiar recursos no utilizados (imágenes huérfanas, etc.)
             docker system prune -f
